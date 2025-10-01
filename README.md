@@ -37,17 +37,31 @@ These commands were executed to scaffold the project.
   npm run dev
   ```
 
+  Runs `ts-node-dev` against `src/index.ts`, watching the `src` tree for
+  changes while ignoring `node_modules`. The command expects a TypeScript
+  entry point at `src/index.ts` and relies on the ambient types supplied by
+  the `@types/node` and `@types/express` development dependencies.
+
 - **Build the project**
 
   ```bash
   npm run build
   ```
 
+  Compiles the TypeScript sources using the settings in `tsconfig.json`,
+  emitting JavaScript to the `dist/` directory. The command assumes the
+  TypeScript configuration file is present and that source files live under
+  `src/`.
+
 - **Run the compiled server**
 
   ```bash
   npm start
   ```
+
+  Launches Node.js with the compiled entry point at `dist/index.js`. Run the
+  build command first to ensure the `dist/` output exists before starting the
+  server in production mode.
 
 - **Run placeholder tests**
 
