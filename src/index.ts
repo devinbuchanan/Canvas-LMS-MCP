@@ -1,5 +1,6 @@
-import { createHttpServer } from './transports/httpServer';
+import { createErrorResponse } from './lib/jsonRpc';
 import { logger } from './lib/logger';
+import { JSONRPCDispatcher, startHttpServer } from './transports/http';
 
 const requiredEnvVars = [
   'CANVAS_DOMAIN',
@@ -21,15 +22,28 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
-const parsedPort = Number.parseInt(process.env.PORT ?? '', 10);
+const dispatcher: JSONRPCDispatcher = async (request) => {
+  const id = request.id ?? null;
+  return createErrorResponse(id, -32601, `Method '${request.method}' is not implemented.`);
+};
 
-if (!Number.isInteger(parsedPort) || parsedPort <= 0) {
-  logger.error('PORT must be a positive integer.');
+const corsOriginsEnv = process.env.CORS_ORIGINS ?? '';
+const allowedOrigins = corsOriginsEnv
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0);
+
+const corsOptions =
+  allowedOrigins.length > 0 && !allowedOrigins.includes('*')
+    ? { origin: allowedOrigins }
+    : undefined;
+
+startHttpServer({
+  dispatcher,
+  corsOptions,
+}).catch((error) => {
+  logger.error('Fatal error while starting HTTP transport', {
+    error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+  });
   process.exit(1);
-}
-
-const app = createHttpServer();
-
-app.listen(parsedPort, () => {
-  logger.info(`Canvas LMS MCP server listening on port ${parsedPort}`);
 });
