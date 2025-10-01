@@ -1,4 +1,6 @@
-import fetch, { Headers, HeadersInit, RequestInit, Response } from 'node-fetch';
+type FetchRequestInit = globalThis.RequestInit;
+type FetchResponse = globalThis.Response;
+type FetchHeadersInit = ConstructorParameters<typeof Headers>[0];
 
 export interface CanvasClientOptions {
   /** Canvas instance domain, e.g. `canvas.instructure.com`. Pulled from CANVAS_DOMAIN when omitted. */
@@ -159,13 +161,13 @@ export interface CanvasClient {
 export function createCanvasClient(options: CanvasClientOptions = {}): CanvasClient {
   const config = createConfig(options);
 
-  async function _fetch(path: string, init: RequestInit = {}): Promise<Response> {
+  async function _fetch(path: string, init: FetchRequestInit = {}): Promise<FetchResponse> {
     const url = buildUrl(config.baseUrl, path);
-    const headers = new Headers(init.headers as HeadersInit | undefined);
+    const headers = new Headers(init.headers as FetchHeadersInit | undefined);
     headers.set('Authorization', `Bearer ${config.token}`);
     headers.set('Accept', headers.get('Accept') ?? 'application/json');
 
-    const requestInit: RequestInit = { ...init, headers };
+    const requestInit: FetchRequestInit = { ...init, headers };
 
     let lastError: Error | undefined;
 
