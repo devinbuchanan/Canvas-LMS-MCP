@@ -11,6 +11,17 @@ A Node.js + TypeScript Model Context Protocol (MCP) server that integrates with 
 - [Node.js](https://nodejs.org/) 18 or later
 - [npm](https://www.npmjs.com/)
 
+## Environment configuration
+
+Copy the provided `.env.example` file to `.env` and fill in the required values before starting the server:
+
+```bash
+cp .env.example .env
+```
+
+- **Local development** – keep the `.env` file outside of version control (it's ignored by `.gitignore`) and load the variables when starting the server. You can do this by exporting them in your shell (for example, `set -a && source .env && npm run dev && set +a`) or by using a tool such as [`dotenv-cli`](https://www.npmjs.com/package/dotenv-cli) (`npx dotenv -e .env -- npm run dev`). Store the `.env` file securely and restrict filesystem permissions so only your user can read it.
+- **Production** – configure secrets in your process manager, container orchestrator, or hosting platform (for example, systemd units, Docker secrets, or managed secret stores). Avoid committing secrets to the repository or baking them into images; inject them as environment variables at deployment time instead.
+
 ## Project Initialization Commands
 
 ```bash
