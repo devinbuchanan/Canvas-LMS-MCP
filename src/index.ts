@@ -1,6 +1,6 @@
-import { createErrorResponse } from './lib/jsonRpc';
 import { logger } from './lib/logger';
 import { JSONRPCDispatcher, startHttpServer } from './transports/http';
+import { handleRpc } from './rpc';
 
 type RequiredEnvVar = 'CANVAS_DOMAIN' | 'CANVAS_API_TOKEN';
 
@@ -47,10 +47,7 @@ function resolveCorsOrigins(): string[] {
     .filter((origin) => origin.length > 0);
 }
 
-const dispatcher: JSONRPCDispatcher = async (request) => {
-  const id = request.id ?? null;
-  return createErrorResponse(id, -32601, `Method '${request.method}' is not implemented.`);
-};
+const dispatcher: JSONRPCDispatcher = async (request) => handleRpc(request);
 
 async function bootstrap(): Promise<void> {
   // Step 1: confirm the environment is configured with the secrets we need to talk to Canvas.
