@@ -1,4 +1,4 @@
-import express, { NextFunction, Request, Response } from 'express';
+import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import cors, { CorsOptions, CorsOptionsDelegate } from 'cors';
 import type { Server } from 'node:http';
 
@@ -12,10 +12,22 @@ import { logger } from '../lib/logger';
 
 export type JSONRPCDispatcher = (request: JSONRPCRequest) => Promise<JSONRPCResponse>;
 
+export interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+}
+
+export interface SharedSecretConfig {
+  secret: string;
+  headerName: string;
+}
+
 export interface HttpServerOptions {
   dispatcher: JSONRPCDispatcher;
   corsOptions?: CorsOptions | CorsOptionsDelegate<Request>;
   jsonBodyLimit?: string;
+  rateLimitConfig?: RateLimitConfig;
+  sharedSecretConfig?: SharedSecretConfig;
 }
 
 export interface StartHttpServerOptions extends HttpServerOptions {
@@ -25,6 +37,57 @@ export interface StartHttpServerOptions extends HttpServerOptions {
 
 const DEFAULT_JSON_LIMIT = '1mb';
 const DEFAULT_HOST = '127.0.0.1';
+
+function createRateLimitMiddleware({ windowMs, maxRequests }: RateLimitConfig): RequestHandler {
+  type Bucket = { count: number; resetAt: number };
+  const buckets = new Map<string, Bucket>();
+
+  return (req, res, next) => {
+    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const existing = buckets.get(key);
+
+    if (!existing || now >= existing.resetAt) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    if (existing.count + 1 > maxRequests) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+      logger.warn('Rate limit exceeded', { ip: key, path: req.path });
+      res.setHeader('Retry-After', retryAfterSeconds.toString());
+      res
+        .status(429)
+        .json(createErrorResponse(null, -32001, 'Too many requests. Please retry later.'));
+      return;
+    }
+
+    existing.count += 1;
+    next();
+  };
+}
+
+function createSharedSecretMiddleware({ secret, headerName }: SharedSecretConfig): RequestHandler {
+  const normalizedHeader = headerName.trim();
+
+  return (req, res, next) => {
+    const provided = req.get(normalizedHeader);
+
+    if (!provided || provided !== secret) {
+      logger.warn('Rejected request with missing or invalid MCP transport secret.', {
+        path: req.path,
+      });
+
+      res
+        .status(401)
+        .json(createErrorResponse(null, -32002, 'Missing or invalid MCP transport secret.'));
+      return;
+    }
+
+    next();
+  };
+}
 
 function resolvePort(explicitPort?: number): number {
   if (typeof explicitPort === 'number') {
@@ -53,10 +116,22 @@ export function createHttpServer({
   dispatcher,
   corsOptions,
   jsonBodyLimit = DEFAULT_JSON_LIMIT,
+  rateLimitConfig,
+  sharedSecretConfig,
 }: HttpServerOptions): express.Express {
   const app = express();
   type SSEClient = { res: Response; heartbeat: NodeJS.Timeout; topic?: string };
   const sseClients = new Set<SSEClient>();
+
+  const mcpMiddlewares: RequestHandler[] = [];
+
+  if (sharedSecretConfig) {
+    mcpMiddlewares.push(createSharedSecretMiddleware(sharedSecretConfig));
+  }
+
+  if (rateLimitConfig) {
+    mcpMiddlewares.push(createRateLimitMiddleware(rateLimitConfig));
+  }
 
   function removeClient(client: SSEClient): void {
     clearInterval(client.heartbeat);
@@ -86,7 +161,7 @@ export function createHttpServer({
   });
 
   // Primary MCP endpoint: validates the JSON-RPC request and delegates to the dispatcher for execution.
-  app.post('/mcp', async (req: Request, res: Response) => {
+  const handleMcpRequest: RequestHandler = async (req: Request, res: Response) => {
     const payload = req.body;
 
     if (!isJSONRPCRequest(payload)) {
@@ -112,9 +187,11 @@ export function createHttpServer({
         .status(500)
         .json(createErrorResponse(payload.id ?? null, -32603, 'Internal error while processing request.'));
     }
-  });
+  };
 
-  app.get('/mcp/stream', (req: Request, res: Response) => {
+  app.post('/mcp', ...mcpMiddlewares, handleMcpRequest);
+
+  app.get('/mcp/stream', ...mcpMiddlewares, (req: Request, res: Response) => {
     const topicParam = req.query.topic;
     const topic = Array.isArray(topicParam) ? topicParam[0] : topicParam;
 
@@ -162,11 +239,19 @@ export async function startHttpServer({
   dispatcher,
   corsOptions,
   jsonBodyLimit,
+  rateLimitConfig,
+  sharedSecretConfig,
   port,
   host = DEFAULT_HOST,
 }: StartHttpServerOptions): Promise<Server> {
   const resolvedPort = resolvePort(port);
-  const app = createHttpServer({ dispatcher, corsOptions, jsonBodyLimit });
+  const app = createHttpServer({
+    dispatcher,
+    corsOptions,
+    jsonBodyLimit,
+    rateLimitConfig,
+    sharedSecretConfig,
+  });
 
   return await new Promise<Server>((resolve, reject) => {
     const server = app
