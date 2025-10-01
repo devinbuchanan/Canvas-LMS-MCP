@@ -4,7 +4,9 @@ A Node.js + TypeScript Model Context Protocol (MCP) server that integrates with 
 
 - `GET /health` for liveness checks.
 - `POST /mcp` to receive JSON-RPC 2.0 requests.
-- `GET /mcp/stream` as a placeholder for future Server-Sent Events (SSE) streaming.
+- `GET /mcp/stream` to open a Server-Sent Events (SSE) connection. The endpoint currently
+  emits heartbeat pings every 15 seconds and should be treated as a placeholder; clients
+  that do not need streaming updates can safely ignore it for now.
 
 ## Prerequisites
 

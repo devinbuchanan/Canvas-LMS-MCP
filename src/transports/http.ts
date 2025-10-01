@@ -28,8 +28,8 @@ const DEFAULT_HOST = '127.0.0.1';
 
 function resolvePort(explicitPort?: number): number {
   if (typeof explicitPort === 'number') {
-    if (!Number.isInteger(explicitPort) || explicitPort <= 0) {
-      throw new Error('Port must be a positive integer.');
+    if (!Number.isInteger(explicitPort) || explicitPort < 0) {
+      throw new Error('Port must be a non-negative integer.');
     }
     return explicitPort;
   }
@@ -42,8 +42,8 @@ function resolvePort(explicitPort?: number): number {
 
   const parsedPort = Number.parseInt(envPort, 10);
 
-  if (!Number.isInteger(parsedPort) || parsedPort <= 0) {
-    throw new Error('PORT must be set to a positive integer.');
+  if (!Number.isInteger(parsedPort) || parsedPort < 0) {
+    throw new Error('PORT must be set to a non-negative integer.');
   }
 
   return parsedPort;
@@ -55,6 +55,13 @@ export function createHttpServer({
   jsonBodyLimit = DEFAULT_JSON_LIMIT,
 }: HttpServerOptions): express.Express {
   const app = express();
+  type SSEClient = { res: Response; heartbeat: NodeJS.Timeout; topic?: string };
+  const sseClients = new Set<SSEClient>();
+
+  function removeClient(client: SSEClient): void {
+    clearInterval(client.heartbeat);
+    sseClients.delete(client);
+  }
 
   // Enables cross-origin requests from approved origins so browser-based clients can reach the MCP server.
   app.use(corsOptions ? cors(corsOptions) : cors());
@@ -107,6 +114,36 @@ export function createHttpServer({
     }
   });
 
+  app.get('/mcp/stream', (req: Request, res: Response) => {
+    const topicParam = req.query.topic;
+    const topic = Array.isArray(topicParam) ? topicParam[0] : topicParam;
+
+    if (topic && typeof topic !== 'string') {
+      res.status(400).json(createErrorResponse(null, -32600, 'Invalid topic parameter.'));
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    res.write(': stream established\n\n');
+    res.write(': ping\n\n');
+
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 15_000);
+
+    const client: SSEClient = { res, heartbeat, topic: typeof topic === 'string' ? topic : undefined };
+    // Topic is stored for future server-side filtering once streaming payloads are implemented.
+    sseClients.add(client);
+
+    req.on('close', () => {
+      removeClient(client);
+    });
+  });
+
   // Fallback error handler that ensures any uncaught errors are logged and surfaced as JSON-RPC faults.
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('Unhandled error in HTTP transport', {
@@ -115,6 +152,8 @@ export function createHttpServer({
 
     res.status(500).json(createErrorResponse(null, -32603, 'Internal server error.'));
   });
+
+  app.locals.__sseClients = sseClients;
 
   return app;
 }
@@ -144,5 +183,36 @@ export async function startHttpServer({
 
     server.keepAliveTimeout = 60000;
     server.headersTimeout = 65000;
+
+    const sseClients: Set<{ res: Response; heartbeat: NodeJS.Timeout; topic?: string }> | undefined =
+      app.locals.__sseClients;
+
+    if (sseClients) {
+      const originalClose = server.close.bind(server);
+
+      server.close = ((...args: Parameters<typeof originalClose>) => {
+        for (const client of sseClients) {
+          clearInterval(client.heartbeat);
+          try {
+            client.res.end();
+            client.res.socket?.destroy();
+          } catch (error) {
+            logger.warn('Error while closing SSE connection during shutdown', {
+              error: error instanceof Error ? { message: error.message } : error,
+            });
+          }
+        }
+        sseClients.clear();
+
+        return originalClose(...args);
+      }) as typeof server.close;
+
+      server.on('close', () => {
+        for (const client of sseClients) {
+          clearInterval(client.heartbeat);
+        }
+        sseClients.clear();
+      });
+    }
   });
 }
