@@ -1,0 +1,33 @@
+{
+  "name": "canvas-lms-mcp",
+  "version": "0.1.0",
+  "description": "HTTP-based Model Context Protocol server for Canvas LMS integration.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "start": "node dist/index.js",
+    "test": "echo \"No automated tests yet\""
+  },
+  "keywords": [
+    "canvas",
+    "mcp",
+    "json-rpc",
+    "server"
+  ],
+  "author": "",
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.6.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  }
+}
