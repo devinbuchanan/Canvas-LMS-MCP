@@ -49,9 +49,10 @@ These commands were executed to scaffold the project.
   ```
 
   Runs `ts-node-dev` against `src/index.ts`, watching the `src` tree for
-  changes while ignoring `node_modules`. The command expects a TypeScript
-  entry point at `src/index.ts` and relies on the ambient types supplied by
-  the `@types/node` and `@types/express` development dependencies.
+  changes and automatically reloading on edits. The command expects a
+  TypeScript entry point at `src/index.ts` and relies on the ambient types
+  supplied by the `@types/node` and `@types/express` development
+  dependencies.
 
 - **Build the project**
 
@@ -79,6 +80,27 @@ These commands were executed to scaffold the project.
   ```bash
   npm test
   ```
+
+## Docker
+
+Build the production image with the included multi-stage Dockerfile. The build
+stage compiles the TypeScript sources into `dist/`, and the runtime stage copies
+those compiled assets and installs only production dependencies.
+
+```bash
+docker build -t canvas-lms-mcp .
+```
+
+Run the container by providing the required Canvas credentials as environment
+variables. The image launches the compiled server from `dist/index.js` and
+listens on port 3000 by default.
+
+```bash
+docker run -p 3000:3000 \
+  -e CANVAS_DOMAIN=example.instructure.com \
+  -e CANVAS_API_TOKEN=your-token \
+  canvas-lms-mcp
+```
 
 ## Project Structure
 
